@@ -17,19 +17,19 @@ def post_view_angle(view_angle, out_name, delete_origin = False):
     g = gdal.Open(view_angle)
     vaa, vza = g.ReadAsArray()/100.
     vaa[vaa==-327.67] = np.nan
-    vza[vza<    0.01] = np.nan
+    vza[vza==-327.67] = np.nan
     x, y = np.where(vza==np.nanmin(vza))
     p = np.poly1d(np.polyfit(y,x,1))
     x1, y1 = np.where(~np.isnan(vza))
     dist = abs(p(y1)-x1)/(np.sqrt(1+p.c[0]**2))
     vza[x1, y1] = np.nanmin(vza) + dist/(dist.max()-dist.min()) * (np.nanmax(vza)-np.nanmin(vza))
     hist, bin_edges = np.histogram(vaa[vaa<0], bins=1000)
-    rvaa = bin_edges[np.argmax(hist)] 
+    rvaa = bin_edges[np.argmax(hist)] + 180
     hist, bin_edges = np.histogram(vaa[vaa>0], bins=1000)
     lvaa = bin_edges[np.argmax(hist)]
     mvaa = np.mean([rvaa, lvaa])
-    vaa[vaa<0] = np.nanmean(vaa[vaa<0])
-    vaa[vaa>0] = np.nanmean(vaa[vaa>0])
+    vaa[vaa<0] = mvaa - 360
+    vaa[vaa>0] = mvaa
     vaa[np.isnan(vaa)] = -327.67
     vza[np.isnan(vza)] = -327.67
     if os.path.exists(out_name):                   
@@ -61,7 +61,7 @@ def usgs_angle(band_angType, ang_file):
 
 
 def do_l8_angle(metafile):
-    l8_file_dir = os.path.realpath(os.path.dirname(metafile))
+    l8_file_dir = os.path.dirname(metafile)
     if not os.path.exists(l8_file_dir + '/angles'):
         os.mkdir(l8_file_dir + '/angles')
     header    = '_'.join(metafile.split('/')[-1].split('_')[:-1])
@@ -69,42 +69,28 @@ def do_l8_angle(metafile):
     bands = [l8_file_dir + '/' + header + '_%s.TIF'%i for i in bs]
     toa_bands = bands[:-1]
     qa_band  = bands[-1]
-    bands    = np.arange(1, 8)
     ang_file = l8_file_dir + '/' + header + '_ANG.txt'
+    bands    = np.arange(1, 8)
+    ang_types = ['BOTH', ] + ['SATELLITE',] * 7
+    band_angTypes = zip(bands, ang_types)
+    par = partial(usgs_angle, ang_file = ang_file)
+    cwd = os.getcwd()
+    os.chdir(l8_file_dir + '/angles')
+    p = Pool() 
+    rets = p.map(par, band_angTypes) 
+    p.close()
+    p.join()  
+    sun_angle  = header  + '_solar_B01.img'
+    nsun_angle = header  + '_SAA_SZA.TIF'
+    gdal.Translate(nsun_angle, sun_angle, creationOptions = ['COMPRESS=DEFLATE', 'TILED=YES'], noData='-32767').FlushCache()
+    rets.append(nsun_angle)
+    os.remove(sun_angle)
+    os.remove(sun_angle + '.hdr')
+    os.chdir(cwd)
     
-    sun_angle = glob(l8_file_dir + '/angles/' + header  + '_SAA_SZA.TIF')
-    
-    view_angs = []
-    for band in bands:
-        view_ang_file = l8_file_dir + '/angles/' + header  + '_VAA_VZA_B%02d.TIF'%band
-        view_angs += glob(view_ang_file)
-    
-    ang_names = view_angs + sun_angle
-    if len(ang_names) != 8:
-
-        ang_types = ['BOTH', ] + ['SATELLITE',] * 7
-        band_angTypes = zip(bands, ang_types)
-        par = partial(usgs_angle, ang_file = ang_file)
-        cwd = os.getcwd()
-        os.chdir(l8_file_dir + '/angles')
-    #     p = Pool() 
-    #     rets = p.map(par, band_angTypes) 
-    #     p.close()
-    #     p.join()  
-    #    rets = list(map(par, band_angTypes))
-        rets = [par(i) for i in band_angTypes]
-        sun_angle  = header  + '_solar_B01.img'
-        nsun_angle = header  + '_SAA_SZA.TIF'
-        gdal.Translate(nsun_angle, sun_angle, creationOptions = ['COMPRESS=DEFLATE', 'TILED=YES'], noData='-32767').FlushCache()
-        rets.append(nsun_angle)
-        os.remove(sun_angle)
-        os.remove(sun_angle + '.hdr')
-        os.chdir(cwd)
-        ang_names = [l8_file_dir + '/angles/' + i for i in rets]
-
+    ang_names = [l8_file_dir + '/angles/' + i for i in rets]
     view_ang_names = ang_names[:-1]
     sun_ang_name = ang_names[-1]
-
     cloud_mask = gdal.Open(qa_band).ReadAsArray()
     cloud_mask = ~((cloud_mask  >= 2720) & ( cloud_mask <= 2732))
 

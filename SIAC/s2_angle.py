@@ -13,6 +13,18 @@ from multiprocessing import Pool
 import xml.etree.ElementTree as ET
 from scipy.ndimage import binary_dilation
 #from scipy.interpolate import griddata
+from SIAC.create_logger import create_logger
+'''
+logger = logging.getLogger('SIAC')
+logger.setLevel(logging.INFO)
+if not logger.handlers:
+    ch = logging.StreamHandler()
+    ch.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
+'''
+logger = create_logger()
 
 def parse_xml(meta_file, example_file, sun_ang_name):
     tree = ET.parse(meta_file)
@@ -82,31 +94,9 @@ def parse_xml(meta_file, example_file, sun_ang_name):
     dst_ds, g = None, None
     return vaa, vza
 
-def get_mean_angle(meta_file):
-    tree = ET.parse(meta_file)
-    root = tree.getroot()
-    mvz = {} 
-    mva = {} 
-    msz = []
-    msa = []
-    for child in root: 
-        for j in child: 
-            for mvia in j.findall('Mean_Viewing_Incidence_Angle_List'): 
-                for i in mvia.findall('Mean_Viewing_Incidence_Angle'): 
-                    mvz[int(i.attrib['bandId'])] = float(i.find('ZENITH_ANGLE').text) 
-                    mva[int(i.attrib['bandId'])] = float(i.find('AZIMUTH_ANGLE').text) 
-            for ms in j.findall('Mean_Sun_Angle'):
-                    msz = float(ms.find('ZENITH_ANGLE').text)
-                    msa = float(ms.find('AZIMUTH_ANGLE').text)
-    return msz, msa, mvz, mva
-
 def get_angle(view_ang_name_gml, vaa, vza, band_dict):
     band_name, view_ang_name, gml = view_ang_name_gml
-    band_ind = band_dict[gml[-7:-4]]
-    _va = np.nanmean([vaa[i] for i in vaa.keys() if i[0] == band_ind])
-    _vz = np.nanmean([vza[i] for i in vza.keys() if i[0] == band_ind])
-    if np.isnan(_va) or np.isnan(_vz):
-        return False   
+    logger.info('getting angle for {}, {}, and {}'.format(band_name, view_ang_name, gml))
     g = ogr.Open(gml)
     xRes = 10; yRes=10
     g1     = gdal.Open(band_name)
@@ -123,7 +113,7 @@ def get_angle(view_ang_name_gml, vaa, vza, band_dict):
     xRes, yRes  = abs(geo_t[1]), abs(geo_t[5])
     x_scale = 5000. / xRes
     y_scale = 5000. / yRes
-    
+    layer = g.GetLayer()
     foot1 = None                            
     foot2 = None                                   
     va1   = None
@@ -131,7 +121,6 @@ def get_angle(view_ang_name_gml, vaa, vza, band_dict):
     va2   = None                                                     
     vz2   = None     
     try:
-        layer = g.GetLayer()
         dets = []
         for i in range(layer.GetFeatureCount()): 
             dets.append(layer.GetFeature(i).items()['gml_id'])
@@ -219,59 +208,30 @@ def get_angle(view_ang_name_gml, vaa, vza, band_dict):
             vz2   = vz1
         #    vas[:] = np.nanmean(vaa.values())
         #    vzs[:] = np.nanmean(vza.values())
-        # mask      = vas < -180
-        # if (~mask).sum()<1:
-        #     vas[:] = np.nanmean(va1)
-        #     #vas = fill_bad(vas, ~mask)
-        # mask      = vzs < 0                              
-        # if (~mask).sum()<1:
-        #     vzs[:] = np.nanmean(vz1)
+        if os.path.exists(view_ang_name):                   
+            os.remove(view_ang_name)                        
+        dst_ds = gdal.GetDriverByName('GTiff').Create(view_ang_name, x_size, y_size, 2, gdal.GDT_Int16, options=["TILED=YES", "COMPRESS=DEFLATE"])
+        dst_ds.SetGeoTransform(g1.GetGeoTransform())         
+        dst_ds.SetProjection(g1.GetProjection())             
+        mask      = vas < -180
+        if (~mask).sum()<1:
+            vas[:] = np.nanmean(va1)
+            #vas = fill_bad(vas, ~mask)
+        mask      = vzs < 0                              
+        if (~mask).sum()<1:
+            vzs[:] = np.nanmean(vz1)
             #vzs = fill_bad(vzs, ~mask)
-        #vas[(vas>180) & (vas<=360)] = vas[(vas>180) & (vas<=360)].mean() - 360
-        #vas[(vas>=0)  & (vas<=180)] = vas[(vas>=0)  & (vas<=180)].mean()
-        # if os.path.exists(view_ang_name):                   
-        #     os.remove(view_ang_name)                        
-        # dst_ds = gdal.GetDriverByName('GTiff').Create(view_ang_name, x_size, y_size, 2, gdal.GDT_Int16, options=["TILED=YES", "COMPRESS=DEFLATE"])
-        # dst_ds.SetGeoTransform(g1.GetGeoTransform())         
-        # dst_ds.SetProjection(g1.GetProjection())             
-        # dst_ds.GetRasterBand(1).WriteArray((vas * 100).astype(int))            
-        # dst_ds.GetRasterBand(2).WriteArray((vzs * 100).astype(int))            
-        # dst_ds.GetRasterBand(1).SetNoDataValue(-32767)       
-        # dst_ds.GetRasterBand(2).SetNoDataValue(-32767)       
-        # dst_ds.FlushCache()                                  
-        # dst_ds = None  
-        # g1 = None   
-        # return True  
+        vas[vas>180] = vas[vas>180] - 360         
+        dst_ds.GetRasterBand(1).WriteArray((vas * 100).astype(int))            
+        dst_ds.GetRasterBand(2).WriteArray((vzs * 100).astype(int))            
+        dst_ds.GetRasterBand(1).SetNoDataValue(-32767)       
+        dst_ds.GetRasterBand(2).SetNoDataValue(-32767)       
+        dst_ds.FlushCache()                                  
+        dst_ds = None  
+        g1 = None   
+        return True  
     except:
-        band_ind = band_dict[gml[-7:-4]]
-        vas[:] = np.nanmean([vaa[i] for i in vaa.keys() if i[0] == band_ind])
-        vzs[:] = np.nanmean([vza[i] for i in vza.keys() if i[0] == band_ind])
-    
-    if os.path.exists(view_ang_name):                   
-        os.remove(view_ang_name)                        
-    dst_ds = gdal.GetDriverByName('GTiff').Create(view_ang_name, x_size, y_size, 2, gdal.GDT_Int16, options=["TILED=YES", "COMPRESS=DEFLATE"])
-    dst_ds.SetGeoTransform(g1.GetGeoTransform())         
-    dst_ds.SetProjection(g1.GetProjection())             
-    
-    mask      = vas < -180
-    if (~mask).sum()<1:
-        vas[:] = np.nanmean(va1)
-        #vas = fill_bad(vas, ~mask)
-    mask      = vzs < 0                              
-    if (~mask).sum()<1:
-        vzs[:] = np.nanmean(vz1)
-        #vzs = fill_bad(vzs, ~mask)
-    #vas[(vas>180) & (vas<=360)] = vas[(vas>180) & (vas<=360)].mean() - 360
-    #vas[(vas>=0)  & (vas<=180)] = vas[(vas>=0)  & (vas<=180)].mean()
-    dst_ds.GetRasterBand(1).WriteArray((vas * 100).astype(int))            
-    dst_ds.GetRasterBand(2).WriteArray((vzs * 100).astype(int))            
-    dst_ds.GetRasterBand(1).SetNoDataValue(-32767)       
-    dst_ds.GetRasterBand(2).SetNoDataValue(-32767)       
-    dst_ds.FlushCache()                                  
-    dst_ds = None  
-    g1 = None  
-    return True
-
+        return False
 
 '''
 def fill_bad(array, mask):                        
@@ -283,13 +243,14 @@ def fill_bad(array, mask):
     array = griddata(valid, value, mesh, method='nearest')
     return array
 '''
+
 def resample_s2_angles(metafile):
     #check the available rams and decide cores can be used
     #start multiprocessing
     bands    = ['B01', 'B02', 'B03','B04','B05' ,'B06', 'B07', 'B08','B8A', 'B09', 'B10', 'B11', 'B12'] #all bands
     band_ram = 5e9
-    av_ram = psutil.virtual_memory().available
-    procs = np.min([int(av_ram / band_ram), psutil.cpu_count(), 4])
+    av_ram = psutil.virtual_memory().available 
+    procs = np.min([int(av_ram / band_ram), psutil.cpu_count(), len(bands)])
     if procs < 1:
         raise MemoryError('At least 500MB ram is needed.')
     s2_file_dir = os.path.dirname(metafile)
@@ -307,111 +268,38 @@ def resample_s2_angles(metafile):
         sun_ang_name = s2_file_dir + '/angles/' + 'SAA_SZA.tif'
         view_ang_names = [s2_file_dir + '/angles/' + 'VAA_VZA_%s.tif'%band for band in bands]
         toa_refs = glob(s2_file_dir + '/*B??.jp2')
-    else:
+    else:                                               
         raise IOError('Invalid metafile please use the default AWS or SCIHUB format.')
     gmls = sorted(gmls, key = lambda gml: bands.index('B' + gml.split('B')[-1][:2]))
-    inds = [bands.index('B' + gml.split('B')[-1][:2]) for gml in gmls]
     toa_refs = sorted(toa_refs, key = lambda toa_ref: bands.index('B' + toa_ref.split('B')[-1][:2]))
     cloud_name = s2_file_dir+'/cloud.tif'
     example_file = toa_refs[1]
     vaa, vza = parse_xml(metafile, example_file, sun_ang_name)
-    # some gmls may lost....
-    view_ang_name_gmls = list(zip(np.array(toa_refs)[inds], np.array(view_ang_names)[inds], np.array(gmls)[inds]))
+    view_ang_name_gmls = zip(toa_refs, view_ang_names, gmls)
     band_dict = dict(zip(bands, range(13)))
-    par = partial(get_angle, vaa=vaa, vza=vza, band_dict=band_dict)
-#     p = Pool(procs)
-    #print(view_ang_name_gmls)
-#     ret = p.map(par,  view_ang_name_gmls)
-    ret  =list(map(par,  view_ang_name_gmls))
-    #print(ret)
-#     p.close()
-#     p.join()
-    ret = np.array(ret)
+    logger.info('getting angles from {} processes'.format(procs))
     view_ang_names = np.array(view_ang_names)
- 
-    if (ret.sum()<13) & (ret.sum()>0):
-        inds = np.array(inds)[ret] # this is the good proccessed
-        ret = np.zeros(13)
-        ret[inds] = 1 # recover them to the original bands
-
-    if ret.sum()>0:
-        ret = ret.astype(bool)
-        bad_angs       = view_ang_names[~ret]
-        src_files      = view_ang_names[ret][abs(np.arange(13)[~ret][...,None] - np.arange(13)[ret]).argmin(axis=1)]
-        for i in range(len(bad_angs)):
-            copyfile(src_files[i], bad_angs[i])
-
-    else:
-        raise LookupError('failed to reconstract angles...')
+    ret = [True] * 13
+    for i, view_ang_name_gml in enumerate(view_ang_name_gmls):
+        got_angle = get_angle(view_ang_name_gml, vaa, vza, band_dict)
+        ret[i] = got_angle
+    inv_ret = [not i for i in ret]
+    bad_angs       = view_ang_names[inv_ret]
+    src_files      = view_ang_names[ret][abs(np.arange(13)[inv_ret][...,None] - np.arange(13)[ret]).argmin(axis=1)]
+    for i in range(len(bad_angs)):
+        copyfile(src_files[i], bad_angs[i])
+    #par = partial(get_angle, vaa=vaa, vza=vza, band_dict=band_dict)
+    #p = Pool(procs)
+    #ret = p.map(par,  view_ang_name_gmls)
+    #ret  =list( map(par,  view_ang_name_gmls))
+    #p.close()
+    #p.join()
+    #ret = np.array(ret)
+    #if ret.sum()>0:
+    #    bad_angs       = view_ang_names[~ret]
+    #    src_files      = view_ang_names[ret][abs(np.arange(13)[~ret][...,None] - np.arange(13)[ret]).argmin(axis=1)]
+    #    for i in range(len(bad_angs)):
+    #        copyfile(src_files[i], bad_angs[i])
+    #else:
+    #    raise LookupError('failed to reconstract angles...')
     return sun_ang_name, view_ang_names, toa_refs, cloud_name
-
-
-
-def minimum_bounding_rectangle(points):
-    import numpy as np
-    from scipy.spatial import ConvexHull
-    """
-    Find the smallest bounding rectangle for a set of points.
-    Returns a set of points representing the corners of the bounding box.
-
-    :param points: an nx2 matrix of coordinates
-    :rval: an nx2 matrix of coordinates
-    """
-    from scipy.ndimage.interpolation import rotate
-    pi2 = np.pi/2.
-
-    # get the convex hull for the points
-    hull_points = points[ConvexHull(points).vertices]
-
-    # calculate edge angles
-    edges = np.zeros((len(hull_points)-1, 2))
-    edges = hull_points[1:] - hull_points[:-1]
-
-    angles = np.zeros((len(edges)))
-    angles = np.arctan2(edges[:, 1], edges[:, 0])
-
-    angles = np.abs(np.mod(angles, pi2))
-    angles = np.unique(angles)
-
-    # find rotation matrices
-    # XXX both work
-    rotations = np.vstack([
-        np.cos(angles),
-        np.cos(angles-pi2),
-        np.cos(angles+pi2),
-        np.cos(angles)]).T
-#     rotations = np.vstack([
-#         np.cos(angles),
-#         -np.sin(angles),
-#         np.sin(angles),
-#         np.cos(angles)]).T
-    rotations = rotations.reshape((-1, 2, 2))
-
-    # apply rotations to the hull
-    rot_points = np.dot(rotations, hull_points.T)
-
-    # find the bounding points
-    min_x = np.nanmin(rot_points[:, 0], axis=1)
-    max_x = np.nanmax(rot_points[:, 0], axis=1)
-    min_y = np.nanmin(rot_points[:, 1], axis=1)
-    max_y = np.nanmax(rot_points[:, 1], axis=1)
-
-    # find the box with the best area
-    areas = (max_x - min_x) * (max_y - min_y)
-    best_idx = np.argmin(areas)
-
-    # return the best box
-    x1 = max_x[best_idx]
-    x2 = min_x[best_idx]
-    y1 = max_y[best_idx]
-    y2 = min_y[best_idx]
-    r = rotations[best_idx]
-
-    rval = np.zeros((5, 2))
-    rval[0] = np.dot([x1, y2], r)
-    rval[1] = np.dot([x2, y2], r)
-    rval[2] = np.dot([x2, y1], r)
-    rval[3] = np.dot([x1, y1], r)
-    rval[4] = np.dot([x1, y2], r)
-
-    return rval

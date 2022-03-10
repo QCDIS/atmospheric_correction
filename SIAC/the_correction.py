@@ -14,7 +14,6 @@ except:
     import pickle as pkl
 from osgeo import gdal, ogr
 from numpy import clip, uint8
-from SIAC.Two_NN import Two_NN
 from SIAC.multi_process import parmap
 from scipy.interpolate import griddata
 from scipy.ndimage import binary_dilation
@@ -23,17 +22,6 @@ from SIAC.raster_boundary import get_boundary
 from SIAC.reproject import reproject_data, array_to_raster
 
 warnings.filterwarnings("ignore")
-
-
-def fill_nan(array):                        
-    x_shp, y_shp = array.shape                     
-    mask  = ~np.isnan(array)                       
-    valid = np.array(np.where(mask)).T             
-    value = array[mask]                            
-    mesh  = np.repeat(range(x_shp), y_shp).reshape(x_shp, y_shp), \
-	    np.tile  (range(y_shp), x_shp).reshape(x_shp, y_shp)
-    array = griddata(valid, value, mesh, method='nearest')
-    return array
 
 class atmospheric_correction(object):
     ''' 
@@ -178,31 +166,18 @@ class atmospheric_correction(object):
         '''
         self._toa_bands = []
         for band in self.toa_bands:
-            pixel_res = abs(gdal.Open(band).GetGeoTransform()[1])
-            g = gdal.Warp('', band, format = 'MEM', xRes = pixel_res, yRes = pixel_res, srcNodata = 0, dstNodata=0, warpOptions = \
+            g = gdal.Warp('', band, format = 'MEM', srcNodata = 0, dstNodata=0, warpOptions = \
                           ['NUM_THREADS=ALL_CPUS'], cutlineDSName= self.aoi, cropToCutline=True, resampleAlg = 0)
             self._toa_bands.append(g)
-        
         self.example_file = self._toa_bands[0]
         if self.cloud_mask is None:
             self.cloud_mask = False
         self.mask = self.example_file.ReadAsArray() >0# & (~self.cloud_mask)
         self.mask_g = array_to_raster(self.mask.astype(float), self.example_file)
-        
-        if isinstance(self.ref_scale, np.ndarray):
-            assert(self.ref_scale.shape == self.mask.shape), \
-            'Reflectance scale should have the same shape as reflectance, but got ' + str(self.ref_scale.shape) + ' and ' + str(self.mask.shape) 
-            self.ref_scale_g = array_to_raster(self.ref_scale, self.example_file)
-            
-        if isinstance(self.ref_off, np.ndarray):
-            assert(self.ref_off.shape == self.mask.shape), \
-            'Reflectance offset should have the same shape as reflectance, but got ' + str(self.ref_off.shape) + ' and ' + str(self.mask.shape) 
-            self.ref_off_g   = array_to_raster(self.ref_off, self.example_file)
-            
         self.mask = self.mask.astype(bool)
         self.mg    = gdal.Warp('', band, format = 'MEM', srcNodata = None, xRes = self.block_size, yRes = \
                                self.block_size, cutlineDSName= self.aoi, cropToCutline=True, resampleAlg = 0)        
-    '''
+  
     def _load_xa_xb_xc_emus(self,):
         xap_emu = glob(self.emus_dir + '/isotropic_%s_emulators_correction_xap_%s.pkl'%(self.sensor, self.satellite))[0]
         xbp_emu = glob(self.emus_dir + '/isotropic_%s_emulators_correction_xbp_%s.pkl'%(self.sensor, self.satellite))[0]
@@ -213,24 +188,6 @@ class atmospheric_correction(object):
             f = lambda em: pkl.load(open(str(em), 'rb'))
         #print([xap_emu, xbp_emu, xcp_emu])
         self.xap_emus, self.xbp_emus, self.xcp_emus = parmap(f, [xap_emu, xbp_emu, xcp_emu])
-    '''
-    def _load_xa_xb_xc_emus(self,):
-        xaps = []    
-        xbps = []    
-        xcps = []    
-        for band in self.toa_bands:
-            band_name = 'B' + band.upper().split('/')[-1].split('B')[-1].split('.')[0]
-            xap_emu = glob(self.emus_dir + '/isotropic_%s_%s_%s_xap.npz'%(self.sensor, self.satellite, band_name))[0]
-            xbp_emu = glob(self.emus_dir + '/isotropic_%s_%s_%s_xbp.npz'%(self.sensor, self.satellite, band_name))[0]
-            xcp_emu = glob(self.emus_dir + '/isotropic_%s_%s_%s_xcp.npz'%(self.sensor, self.satellite, band_name))[0]
-            xap = Two_NN(np_model_file=xap_emu)
-            xbp = Two_NN(np_model_file=xbp_emu)
-            xcp = Two_NN(np_model_file=xcp_emu)
-            xaps.append(xap)
-            xbps.append(xbp)
-            xcps.append(xcp)
-        self.xap_emus, self.xbp_emus, self.xcp_emus = xaps, xbps, xcps
-
     
     def _var_parser(self, var):
         if os.path.exists(str(var)):    
@@ -368,17 +325,28 @@ class atmospheric_correction(object):
         #self._cmask  = self._cmask.astype(bool)
 
     def _fill_nan(self,):
-        self._vza = np.array(list(map(fill_nan, list(self._vza))))
-        self._vaa = np.array(list(map(fill_nan, list(self._vaa))))
+        def fill_nan(array):                        
+            x_shp, y_shp = array.shape
+            mask  = ~np.isnan(array)
+            if np.sum(mask) == 0: # all data is invalid
+                return np.full((x_shp, y_shp), np.nan)
+            valid = np.array(np.where(mask)).T             
+            value = array[mask]                            
+            mesh  = np.repeat(range(x_shp), y_shp).reshape(x_shp, y_shp), \
+                    np.tile  (range(y_shp), x_shp).reshape(x_shp, y_shp)
+            array = griddata(valid, value, mesh, method='nearest')
+            return array
+        self._vza = np.array(parmap(fill_nan, list(self._vza)))
+        self._vaa = np.array(parmap(fill_nan, list(self._vaa)))
         self._saa, self._sza, self._ele, self._aot, self._tcwv, self._tco3, self._aot_unc, self._tcwv_unc, self._tco3_unc = \
-        list(map(fill_nan, [self._saa, self._sza, self._ele, self._aot, self._tcwv, self._tco3, self._aot_unc, self._tcwv_unc, self._tco3_unc]))
+        parmap(fill_nan, [self._saa, self._sza, self._ele, self._aot, self._tcwv, self._tco3, self._aot_unc, self._tcwv_unc, self._tco3_unc])
         self._aot_unc = array_to_raster(self._aot_unc, self.example_file)
         self._tcwv_unc = array_to_raster(self._tcwv_unc, self.example_file)
         self._tco3_unc = array_to_raster(self._tco3_unc, self.example_file)
 
     def _get_xps(self,):
         p   = [np.cos(self._sza), None, None, self._aot, self._tcwv, self._tco3, self._ele]   
-        raa = np.cos(self._vaa - self._saa)
+        raa = np.cos(self._saa - self._vaa)
         vza = np.cos(self._vza)
         xap, xap_dH = [], []               
         xbp, xbp_dH = [], []               
@@ -391,11 +359,10 @@ class atmospheric_correction(object):
             X[1:3] = vza[i], raa[i]
             X = np.array(X).reshape(7, -1)[:, self._cmask.ravel()]
             for ei, emu in enumerate([self.xap_emus, self.xbp_emus, self.xcp_emus]):
-                #H, _, dH = emu[emus_index].predict(X.T, do_unc=True)
-                H, dH = emu[emus_index].predict(X.T, cal_jac=True)[0]
+                H, _, dH = emu[emus_index].predict(X.T, do_unc=True)
 
                 temp = np.zeros_like(self._sza)
-                temp[self._cmask] = H.ravel()
+                temp[self._cmask] = H
                 xps[ei].append(array_to_raster(temp, self.example_file))
 
                 temp = np.zeros(self._sza.shape + (3,))
@@ -421,19 +388,14 @@ class atmospheric_correction(object):
     def _get_boa(self,):
 
         pix_mem = 180.
-        if 'jasmin_memory_limit' in os.environ:
-            jasmin_memory_limit = float(os.environ['jasmin_memory_limit']) - 10000
-        else:
-            jasmin_memory_limit = psutil.virtual_memory().available + 10000
-        av_ram = min(psutil.virtual_memory().available * 0.95, jasmin_memory_limit)
-        needed = np.array([i.RasterXSize * i.RasterYSize * pix_mem * 3 for i in self._toa_bands])
+        av_ram = psutil.virtual_memory().available
+        needed = np.array([i.RasterXSize * i.RasterYSize * pix_mem for i in self._toa_bands])
         u_need = np.unique(needed)
         procs  = av_ram / u_need
         if av_ram > sum(needed):
             #ret = parmap(self._do_band, range(len(self.toa_bands)))
             self._chunks = 1
-            #ret = parmap(self._do_chunk, range(len(self.toa_bands)))
-            ret = list(map(self._do_chunk, range(len(self.toa_bands))))
+            ret = parmap(self._do_chunk, range(len(self.toa_bands)))
         else:
             ret = []
             index = []
@@ -441,8 +403,7 @@ class atmospheric_correction(object):
                 bands_to_do = np.arange(len(self.toa_bands))[needed==u_need[i]]
                 if int(proc) >= 1:
                     self._chunks = 1
-                    #re = parmap(self._do_chunk, bands_to_do, min(int(proc), len(bands_to_do)))
-                    re = list(map(self._do_chunk, bands_to_do))
+                    re = parmap(self._do_chunk, bands_to_do, min(int(proc), len(bands_to_do)))
                 else:
                     self._chunks = int(np.ceil(1. / proc))
                     re = list(map(self._do_chunk, bands_to_do))
@@ -470,17 +431,6 @@ class atmospheric_correction(object):
 
             x_off = x_end - x_start
             toa = toa_g.ReadAsArray(x_start, 0, x_off, int(y_size))
-            
-            if isinstance(self.ref_scale, np.ndarray):
-                chunk_ref_scale = self.ref_scale_g.ReadAsArray(x_start, 0, x_off, int(y_size))
-            else:
-                chunk_ref_scale = self.ref_scale
-            
-            if isinstance(self.ref_off, np.ndarray):
-                chunk_ref_off   = self.ref_off_g.ReadAsArray(x_start, 0, x_off, int(y_size))
-            else:
-                chunk_ref_off   = self.ref_off
-
             _g = gdal.Warp('', toa_g, format = 'MEM',  outputBounds = [xmin, geo[3] + y_size * geo[5], xmax, geo[3]], resampleAlg = 0)
             xRes = yRes = int(geo[1])
             xps  = [self.xap_H[ind], self.xbp_H[ind], self.xcp_H[ind]] 
@@ -489,7 +439,7 @@ class atmospheric_correction(object):
                                          ySize=y_size, resample = 0, outputType= gdal.GDT_Float32).data
              
             xap_H, xbp_H, xcp_H = xps
-            toa = toa * chunk_ref_scale + chunk_ref_off                      
+            toa = toa * self.ref_scale + self.ref_off                             
             y   = xap_H * toa - xbp_H
             boa = y / (1 + xcp_H * y)
              
@@ -582,19 +532,19 @@ class atmospheric_correction(object):
         projection   = self._toa_bands[self.ri].GetProjectionRef()
         geotransform = self._toa_bands[self.ri].GetGeoTransform() 
         self._save_rgb(rgba_array, name, projection, geotransform)
-        gdal.Translate(self.toa_dir +'/TOA_overview.png', self.toa_dir+'/TOA_RGB.tif', \
-                       format = 'PNG', widthPct=25, heightPct=25, resampleAlg=gdal.GRA_Bilinear ).FlushCache()
-        gdal.Translate(self.toa_dir +'/TOA_ovr.png', self.toa_dir+'/TOA_RGB.tif', \
-                       format = 'PNG', widthPct=10, heightPct=10, resampleAlg=gdal.GRA_Bilinear ).FlushCache()
+        # gdal.Translate(self.toa_dir +'/TOA_overview.png', self.toa_dir+'/TOA_RGB.tif', \
+        #                format = 'PNG', widthPct=25, heightPct=25, resampleAlg=gdal.GRA_Bilinear ).FlushCache()
+        # gdal.Translate(self.toa_dir +'/TOA_ovr.png', self.toa_dir+'/TOA_RGB.tif', \
+        #                format = 'PNG', widthPct=10, heightPct=10, resampleAlg=gdal.GRA_Bilinear ).FlushCache()
 
         rgba_array = np.clip([self.boa_rgb[0] * self.rgb_scale * 255, self.boa_rgb[1] * self.rgb_scale * 255, \
                               self.boa_rgb[2] * self.rgb_scale * 255, alpha * self.rgb_scale * 255], 0, 255).astype(np.uint8)
         name = self.toa_dir + '/BOA_RGB.tif'
         self._save_rgb(rgba_array, name, projection, geotransform)
-        gdal.Translate(self.toa_dir+'/BOA_overview.png', self.toa_dir+'/BOA_RGB.tif', \
-                       format = 'PNG', widthPct=25, heightPct=25, resampleAlg=gdal.GRA_Bilinear ).FlushCache()
-        gdal.Translate(self.toa_dir+'/BOA_ovr.png', self.toa_dir+'/BOA_RGB.tif', \
-                       format = 'PNG', widthPct=10, heightPct=10, resampleAlg=gdal.GRA_Bilinear ).FlushCache()
+        # gdal.Translate(self.toa_dir+'/BOA_overview.png', self.toa_dir+'/BOA_RGB.tif', \
+        #                format = 'PNG', widthPct=25, heightPct=25, resampleAlg=gdal.GRA_Bilinear ).FlushCache()
+        # gdal.Translate(self.toa_dir+'/BOA_ovr.png', self.toa_dir+'/BOA_RGB.tif', \
+        #                format = 'PNG', widthPct=10, heightPct=10, resampleAlg=gdal.GRA_Bilinear ).FlushCache()
 
     def _doing_correction(self,):
         self.logger.propagate = False
