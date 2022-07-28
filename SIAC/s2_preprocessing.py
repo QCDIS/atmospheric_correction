@@ -21,7 +21,7 @@ try:
     cl = pkl.load(open(file_path + '/data/sen2cloud_detector.pkl', 'rb'))
 except:
     file_path = os.path.dirname(os.path.realpath(__file__))    
-    cl = pkl.load(open(file_path + '/data/sen2cloud_detector_v39 .pkl', 'rb'))
+    cl = pkl.load(open(file_path + '/data/sen2cloud_detector_v39.pkl', 'rb'))
 gc.enable()
 cl.n_jobs = multiprocessing.cpu_count()
 
