@@ -39,7 +39,10 @@ def compose_dtd(nx, ny):
     d4 = np.ones(ns) * -1
     dtdx = sparse.spdiags([d1, d2[::-1], d2], [0, 1, -1], ns, ns)                                                                                                                      
     dtdy = sparse.spdiags([d3, d4, d4], [0, ny, -ny], ns, ns)
-    dtd = dtdx + dtdy
+    try:
+        dtd = dtdx + dtdy
+    except:
+        dtd = sparse.csr_matrix( dtdx.toarray() + dtdy.toarray() )
     return dtd, dtdx, dtdy
 
 class solving_atmo_paras(object): 
