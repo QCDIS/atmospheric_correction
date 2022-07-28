@@ -1,6 +1,6 @@
 import os
 import sys
-import gdal
+from osgeo import gdal
 import requests
 import numpy as np
 from glob import glob
