@@ -1,8 +1,6 @@
 #!/usr/bin/env python  
 import os
-import osr
-import ogr
-import gdal
+from osgeo import osr, ogr, gdal, __version__ as gdalversion
 import numpy as np
 
 '''
@@ -36,16 +34,17 @@ def get_raster_hv(example_file):
     H_res_geo.ImportFromWkt(raster_wkt)
     tx = osr.CoordinateTransformation(H_res_geo, wgs84)
     # so we need the four corners coordiates to check whether they are within the same modis tile
-    (ul_lon, ul_lat, ulz ) = tx.TransformPoint( geo_t[0], geo_t[3])
- 
-    (lr_lon, lr_lat, lrz ) = tx.TransformPoint( geo_t[0] + geo_t[1]*x_size, \
-                                          geo_t[3] + geo_t[5]*y_size )
- 
-    (ll_lon, ll_lat, llz ) = tx.TransformPoint( geo_t[0] , \
-                                          geo_t[3] + geo_t[5]*y_size )
- 
-    (ur_lon, ur_lat, urz ) = tx.TransformPoint( geo_t[0] + geo_t[1]*x_size, \
-                                          geo_t[3]  )
+    if int(gdalversion[0])>=3:
+        (ul_lon, ul_lat, ulz) = tx.TransformPoint(geo_t[3], geo_t[0])
+        (lr_lon, lr_lat, lrz) = tx.TransformPoint(geo_t[3] + geo_t[5] * y_size, geo_t[0] + geo_t[1] * x_size)
+        (ll_lon, ll_lat, llz) = tx.TransformPoint(geo_t[3] + geo_t[5] * y_size, geo_t[0])
+        (ur_lon, ur_lat, urz) = tx.TransformPoint(geo_t[3], geo_t[0] + geo_t[1] * x_size)
+    else:
+        (ul_lon, ul_lat, ulz ) = tx.TransformPoint( geo_t[0], geo_t[3])
+        (lr_lon, lr_lat, lrz ) = tx.TransformPoint( geo_t[0] + geo_t[1]*x_size, geo_t[3] + geo_t[5]*y_size )
+        (ll_lon, ll_lat, llz ) = tx.TransformPoint( geo_t[0] , geo_t[3] + geo_t[5]*y_size )
+        (ur_lon, ur_lat, urz ) = tx.TransformPoint( geo_t[0] + geo_t[1]*x_size, geo_t[3])
+
     a0, b0 = None, None
     corners = [(ul_lon, ul_lat), (lr_lon, lr_lat), (ll_lon, ll_lat), (ur_lon, ur_lat)]
     tiles = []
@@ -81,7 +80,11 @@ def mtile_cal(lat, lon):
     sinu = "+proj=sinu +lon_0=0 +x_0=0 +y_0=0 +a=6371007.181 +b=6371007.181 +units=m +no_defs"
     modis_sinu.ImportFromProj4 (sinu)
     tx = osr.CoordinateTransformation( wgs84, modis_sinu)# from wgs84 to modis 
-    ho,vo,z = tx.TransformPoint(lon, lat)# still use the function instead of using the equation....
+    if int(gdalversion[0])>=3:
+        ho, vo, z = tx.TransformPoint(lat, lon)  # still use the function instead of using the equation....
+    else:
+        ho,vo,z = tx.TransformPoint(lon, lat)# still use the function instead of using the equation....
+
     h = int((ho-m_y0)/(2400*y_step))
     v = int((vo-m_x0)/(2400*x_step))
     return h,v
