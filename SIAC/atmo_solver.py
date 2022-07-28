@@ -250,7 +250,7 @@ class solving_atmo_paras(object):
                 dtd = compose_dtd(1, ny)[0]
                 self.obs_unc[np.isnan(self.obs_unc)] = 0
                 #self.prior_uncs[np.isnan(self.prior_uncs)] =  np.mean(self.prior_uncs[~np.isnan(self.prior_uncs)])
-2                try:
+                try:
                     to_aot = np.nansum([sparse.diags((self.obs_unc[0]).ravel()), sparse.diags((self.prior_uncs[0]**-2).ravel()), self.gamma**2 * dtd], axis = 0)
                     to_tcwv = np.nansum([sparse.diags((self.obs_unc[1]).ravel()), sparse.diags((self.prior_uncs[1]**-2).ravel()), self.gamma**2 * dtd], axis = 0)
                 except:
