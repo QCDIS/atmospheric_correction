@@ -1,5 +1,4 @@
-import gdal
-from osgeo import osr 
+from osgeo import osr, gdal 
 import numpy as np
 import numpy.ma as ma
 #gdalwarp -of VRT -t_srs "+proj=sinu" -te xmin ymin xmax ymax -ts 2400 2400 global_dem.vrt modis_cutoff.vrt
@@ -54,12 +53,16 @@ class reproject_data(object):
             raise IOError('Projection should be specified ether from a file or a projection code.')
         elif self.target_img is not None:
             try:
-                g     = gdal.Open(self.target_img)
-            except:
                 g     = target_img
-            geo_t = g.GetGeoTransform()
-            x_size, y_size = g.RasterXSize, g.RasterYSize     
-
+                geo_t = g.GetGeoTransform()
+                x_size, y_size = g.RasterXSize, g.RasterYSize     
+                raster_wkt = g.GetProjection()
+            except:
+                g     = gdal.Open(self.target_img)                
+                geo_t = g.GetGeoTransform()
+                x_size, y_size = g.RasterXSize, g.RasterYSize     
+                raster_wkt = g.GetProjection()
+            
             if self.xRes is None:
                 self.xRes = abs(geo_t[1])
             if self.yRes is None:
@@ -75,7 +78,7 @@ class reproject_data(object):
             ymin, ymax = min(geo_t[3], geo_t[3] + y_size * geo_t[5]), \
                          max(geo_t[3], geo_t[3] + y_size * geo_t[5])
             dstSRS     = osr.SpatialReference( )
-            raster_wkt = g.GetProjection()
+            
             dstSRS.ImportFromWkt(raster_wkt)
             self.g = gdal.Warp('', self.source_img, format = 'MEM', outputBounds = [xmin, ymin, xmax, ymax], dstNodata=self.dstNodata, warpOptions = ['NUM_THREADS=ALL_CPUS'],\
                                 xRes = self.xRes, yRes = self.yRes, dstSRS = dstSRS, outputType = self.outputType, srcNodata = self.srcNodata, resampleAlg = self.resample)
@@ -100,13 +103,18 @@ def array_to_raster(array, example_file):
     else:                                
         raise IOError('Only 2 or 3 D array is supported.')
     try:                                 
-        g = gdal.Open(example_file)      
+        g = example_file                         
+        projection = g.GetProjection()
+        transform = g.GetGeoTransform()        
     except:                              
-        g = example_file                 
+        g = gdal.Open(example_file)
+        projection = g.GetProjection()
+        transform = g.GetGeoTransform()
+        
     driver = gdal.GetDriverByName('MEM') 
     ds = driver.Create('', array.shape[-1], array.shape[-2], bands, gdal.GDT_Float32)
-    ds.SetProjection(g.GetProjection())  
-    geotransform    = list(g.GetGeoTransform())
+    ds.SetProjection(projection)  
+    geotransform    = list(transform)
     geotransform[1] = geotransform[1] * g.RasterXSize / (1. * array.shape[-1])
     geotransform[5] = geotransform[5] * g.RasterYSize / (1. * array.shape[-2])
     ds.SetGeoTransform(geotransform)     
