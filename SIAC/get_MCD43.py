@@ -1,6 +1,6 @@
 import os
 import time
-import gdal
+from osgeo import gdal
 import getpass
 import requests
 import numpy as np
