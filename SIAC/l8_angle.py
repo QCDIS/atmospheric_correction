@@ -1,6 +1,6 @@
 #/usr/bin/env python 
 import os
-import gdal
+from osgeo import gdal
 import warnings
 import subprocess
 import numpy as np
