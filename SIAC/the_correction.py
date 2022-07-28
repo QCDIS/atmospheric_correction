@@ -392,16 +392,18 @@ class atmospheric_correction(object):
         needed = np.array([i.RasterXSize * i.RasterYSize * pix_mem for i in self._toa_bands])
         u_need = np.unique(needed)
         procs  = av_ram / u_need
-        if av_ram > sum(needed):
-            #ret = parmap(self._do_band, range(len(self.toa_bands)))
-            self._chunks = 1
-            ret = parmap(self._do_chunk, range(len(self.toa_bands)))
-        else:
+        #if av_ram > sum(needed):
+        #    #ret = parmap(self._do_band, range(len(self.toa_bands)))
+        #    self._chunks = 1
+        #    ret = parmap(self._do_chunk, range(len(self.toa_bands)))
+        #else:
+        if 1==1:
             ret = []
             index = []
             for i, proc in enumerate(procs):
                 bands_to_do = np.arange(len(self.toa_bands))[needed==u_need[i]]
-                if int(proc) >= 1:
+                #if int(proc) >= 1:
+                if 1>1:
                     self._chunks = 1
                     re = parmap(self._do_chunk, bands_to_do, min(int(proc), len(bands_to_do)))
                 else:
