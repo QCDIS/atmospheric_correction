@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 import os
 import gc
-import gdal
+from osgeo import gdal
 import logging
 import numpy as np
 import multiprocessing
@@ -15,9 +15,13 @@ try:
     import cPickle as pkl
 except:
     import pickle as pkl
-file_path = os.path.dirname(os.path.realpath(__file__))
-gc.disable()
-cl = pkl.load(open(file_path + '/data/sen2cloud_detector.pkl', 'rb'))
+gc.disable()    
+try:
+    file_path = os.path.dirname(os.path.realpath(__file__))    
+    cl = pkl.load(open(file_path + '/data/sen2cloud_detector.pkl', 'rb'))
+except:
+    file_path = os.path.dirname(os.path.realpath(__file__))    
+    cl = pkl.load(open(file_path + '/data/sen2cloud_detector_v39 .pkl', 'rb'))
 gc.enable()
 cl.n_jobs = multiprocessing.cpu_count()
 
