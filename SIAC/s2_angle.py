@@ -1,8 +1,7 @@
 #!/usr/bin/env python 
 import os
 import sys
-import ogr
-import gdal
+from osgeo import ogr, gdal
 import psutil
 import errno 
 import numpy as np
