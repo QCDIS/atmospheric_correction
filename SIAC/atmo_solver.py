@@ -250,11 +250,16 @@ class solving_atmo_paras(object):
                 dtd = compose_dtd(1, ny)[0]
                 self.obs_unc[np.isnan(self.obs_unc)] = 0
                 #self.prior_uncs[np.isnan(self.prior_uncs)] =  np.mean(self.prior_uncs[~np.isnan(self.prior_uncs)])
-                to_inv = np.nansum([sparse.diags((self.obs_unc[0]).ravel()), sparse.diags((self.prior_uncs[0]**-2).ravel()), self.gamma**2 * dtd], axis = 0)
-                aot_unc  = (linalg.inv(to_inv).diagonal())** 0.5
-
-                to_inv = np.nansum([sparse.diags((self.obs_unc[1]).ravel()), sparse.diags((self.prior_uncs[1]**-2).ravel()), self.gamma**2 * dtd], axis = 0)
-                tcwv_unc = (linalg.inv(to_inv).diagonal())** 0.5
+2                try:
+                    to_aot = np.nansum([sparse.diags((self.obs_unc[0]).ravel()), sparse.diags((self.prior_uncs[0]**-2).ravel()), self.gamma**2 * dtd], axis = 0)
+                    to_tcwv = np.nansum([sparse.diags((self.obs_unc[1]).ravel()), sparse.diags((self.prior_uncs[1]**-2).ravel()), self.gamma**2 * dtd], axis = 0)
+                except:
+                    to_aot = np.nansum([sparse.diags((self.obs_unc[0]).ravel()).toarray(), sparse.diags((self.prior_uncs[0]**-2).ravel()).toarray(), self.gamma**2 * dtd.toarray()], axis = 0)
+                    to_tcwv = np.nansum([sparse.diags((self.obs_unc[1]).ravel()).toarray(), sparse.diags((self.prior_uncs[1]**-2).ravel()).toarray(), self.gamma**2 * dtd.toarray()], axis = 0)
+                    to_aot = sparse.csc_matrix(to_aot)
+                    to_tcwv = sparse.csc_matrix(to_tcwv)
+                aot_unc  = (linalg.inv(to_aot).diagonal())** 0.5
+                tcwv_unc = (linalg.inv(to_tcwv).diagonal())** 0.5
 
                 unc = np.array([aot_unc, tcwv_unc])
                 #unc = (np.nansum([self.obs_unc.reshape(nx, -1), self.prior_uncs**-2 ,  self.gamma**2], axis = 0)) ** -0.5
