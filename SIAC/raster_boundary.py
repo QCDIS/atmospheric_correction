@@ -1,6 +1,6 @@
 import osr
 import ogr
-import gdal
+from osgeo import osr, ogr, gdal, __version__ as gdalversion
 import json
 import numpy  as np
 
