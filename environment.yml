@@ -1,7 +1,34 @@
-name: test-environment
+name: multiply-atmospheric_correction
 
 channels:
   - conda-forge
+  - defaults
+
 dependencies:
-  - gdal==2.4.1
-  - python=3.6
+  - python=>3.8
+  - gdal=2.4
+  - libgdal
+  - pyproj
+  - sentinelhub
+  - pyyaml
+  - numpy
+  - scipy
+  - setuptools
+  - gcc=12.1.0
+  - cxx-compiler
+  - libgcc
+  - libstdcxx-ng
+  - lazrs-python
+  - laspy
+  - pyyaml
+  - setuptools
+  - pytest
+  - flake8
+  - scipy
+  - shapely
+  - pytest-shutil
+  - pip
+  - pip:
+      - .
+      - git+https://github.com/QCDIS/BRDF_descriptors.git
+      - git+https://github.com/QCDIS/atmospheric_correction.git
