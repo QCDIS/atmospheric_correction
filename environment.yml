@@ -31,4 +31,3 @@ dependencies:
   - pip:
       - .
       - git+https://github.com/QCDIS/BRDF_descriptors.git
-      - git+https://github.com/QCDIS/atmospheric_correction.git
