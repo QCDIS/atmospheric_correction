@@ -8,6 +8,7 @@ import subprocess
 import numpy as np
 from copy import copy
 from glob import glob
+import datetime
 try:
     import cPickle as pkl
 except:
