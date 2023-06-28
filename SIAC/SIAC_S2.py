@@ -141,7 +141,8 @@ def do_correction(sun_ang_name, view_ang_names, toa_refs, cloud_name, cloud_mask
                                   sun_angles, aot = aot, cloud_mask = cloud_mask,\
                                   tcwv = tcwv, tco3 = tco3, aot_unc = aot_unc, \
                                   tcwv_unc = tcwv_unc, tco3_unc = tco3_unc, rgb = \
-                                  rgb, emus_dir=emus_dir, global_dem=dem_vrt, cams_dir=cams_dir, log_file = log_file)
+                                  rgb, emus_dir=emus_dir, global_dem=dem_vrt, cams_dir=cams_dir, log_file = log_file,
+                                  ref_scale=ref_scale, ref_off=ref_off)
     atmo._doing_correction()
     return aero, atmo
 
