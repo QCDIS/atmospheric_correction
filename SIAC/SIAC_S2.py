@@ -105,10 +105,27 @@ def do_correction(sun_ang_name, view_ang_names, toa_refs, cloud_name, cloud_mask
     toa_bands   = (np.array(toa_refs)[band_index,]).tolist()
     view_angles = (np.array(view_ang_names)[band_index,]).tolist()
     sun_angles  = sun_ang_name
+
+    # As of 25 januari 2022, an offset was introduced for the conversion to TOA
+    from datetime import datetime as dt
+    date_toa = '-'.join(toa_bands[0].split('/')[-5:-2])
+    if dt.strptime(date_toa,'%Y-%m-%d')> dt(2022,1,25,0,0,0):
+        # PDB>=4.00 format of L1C sentinel 2 data 
+        QUANTIFICATION_VALUEi = 10000.
+        RADIO_ADD_OFFSET = -1000. 
+    else:
+        # PDB<4.00 format of L1C sentinel 2 data 
+        QUANTIFICATION_VALUEi = 10000.
+        RADIO_ADD_OFFSET = 0.    
+    ref_scale = 1./QUANTIFICATION_VALUEi
+    ref_off = RADIO_ADD_OFFSET/QUANTIFICATION_VALUEi 
+                      
     aero = solve_aerosol(sensor_sat,toa_bands,band_wv, band_index,view_angles,\
                          sun_angles,obs_time,cloud_mask, gamma=10., spec_m_dir= \
                          file_path+'/spectral_mapping/', emus_dir=emus_dir, mcd43_dir=vrt_dir, aoi=aoi,
-                         global_dem=dem_vrt, cams_dir=cams_dir, log_file = log_file)
+                         global_dem=dem_vrt, cams_dir=cams_dir, log_file = log_file,
+                         ref_scale=ref_scale, ref_off=ref_off)
+                         
     aero._solving(lower_bound, upper_bound)
     toa_bands  = toa_refs
     view_angles = view_ang_names
