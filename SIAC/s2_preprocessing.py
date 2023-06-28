@@ -28,7 +28,25 @@ cl.n_jobs = multiprocessing.cpu_count()
 
 def do_cloud(cloud_bands, cloud_name = None):
     toas = [reproject_data(str(band), cloud_bands[0], dstNodata=0, resample=5).data for band in cloud_bands]
-    toas = np.array(toas)/10000.
+    
+    # As of 25 januari 2022, an offset was introduced for the conversion to TOA
+    date_toa = '-'.join(cloud_bands[0].split('/')[-5:-2])
+    if dt.strptime(date_toa,'%Y-%m-%d')> dt(2022,1,25,0,0,0):
+        # PDB>=4.00 format of L1C sentinel 2 data 
+        QUANTIFICATION_VALUEi = 10000.
+        RADIO_ADD_OFFSET = -1000.
+    else:
+        # PDB<4.00 format of L1C sentinel 2 data 
+        QUANTIFICATION_VALUEi = 10000.
+        RADIO_ADD_OFFSET = 0.
+#     toas = ((np.array(toas) + RADIO_ADD_OFFSET)/QUANTIFICATION_VALUEi)
+    
+    ref_scale = 1./QUANTIFICATION_VALUEi
+    ref_off = RADIO_ADD_OFFSET/QUANTIFICATION_VALUEi     
+    toas = np.array(toas)*ref_scale + ref_off
+    
+    toas[toas<0] = 0
+    
     mask = np.all(toas >= 0.0001, axis=0)
     valid_pixel = mask.sum()
     cloud_proba = cl.predict_proba(toas[:, mask].T)
