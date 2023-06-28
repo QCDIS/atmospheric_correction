@@ -96,7 +96,7 @@ def parse_xml(meta_file, example_file, sun_ang_name):
 def get_angle(view_ang_name_gml, vaa, vza, band_dict):
     band_name, view_ang_name, gml = view_ang_name_gml
     logger.info('getting angle for {}, {}, and {}'.format(band_name, view_ang_name, gml))
-    g = ogr.Open(gml)
+    #get geotransformation (from band-file)
     xRes = 10; yRes=10
     g1     = gdal.Open(band_name)
     geo_t = g1.GetGeoTransform()
@@ -310,7 +310,7 @@ def get_angle(view_ang_name_gml, vaa, vza, band_dict):
         except:
             return False
     
-    
+    # write output to VZA_VAA file ()
     try:        
         if os.path.exists(view_ang_name):                   
             os.remove(view_ang_name)                        
