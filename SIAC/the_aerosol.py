@@ -224,6 +224,7 @@ class solve_aerosol(object):
 
         if 3 in self.boa_bands:
             BLUE   = self._toa_bands[np.where(self.boa_bands==3)[0][0]].ReadAsArray()*self.ref_scale+self.ref_off
+            BLUE[BLUE<0]=np.nan            
         if BLUE is not None:
             water_mask = BLUE < 0.05
             snow_mask  = BLUE > 0.6
@@ -233,8 +234,10 @@ class solve_aerosol(object):
         
         if 2 in self.boa_bands:
             NIR    = self._toa_bands[np.where(self.boa_bands==2)[0][0]].ReadAsArray()*self.ref_scale+self.ref_off
+            NIR[NIR<0] = np.nan            
         if 1 in self.boa_bands:
             RED    = self._toa_bands[np.where(self.boa_bands==1)[0][0]].ReadAsArray()*self.ref_scale+self.ref_off
+            RED[RED<0] = np.nan            
         if (RED is not None) & (NIR is not None):
             NDVI = (NIR - RED) / (NIR + RED)
             water_mask = ((NDVI < 0.01) & (NIR < 0.11)) | ((NDVI < 0.1) & (NIR < 0.05)) \
@@ -249,8 +252,10 @@ class solve_aerosol(object):
 
         if 6 in self.boa_bands:
             SWIR_1 = self._toa_bands[np.where(self.boa_bands==6)[0][0]].ReadAsArray()*self.ref_scale+self.ref_off
+            SWIR_1[SWIR_1<0]=np.nan            
         if 1 in self.boa_bands:
             GREEN  = self._toa_bands[np.where(self.boa_bands==4)[0][0]].ReadAsArray()*self.ref_scale+self.ref_off
+            GREEN[GREEN<0]=np.nan            
         if (SWIR_1 is not None) & (GREEN is not None):
             NDSI      = (GREEN - SWIR_1) / (SWIR_1 + GREEN)
             snow_mask = (NDSI > 0.42) | (SWIR_1 <= 0.0001) | (GREEN <= 0.0001) | np.isnan(SWIR_1) | np.isnan(GREEN) 

@@ -96,7 +96,7 @@ def parse_xml(meta_file, example_file, sun_ang_name):
 def get_angle(view_ang_name_gml, vaa, vza, band_dict):
     band_name, view_ang_name, gml = view_ang_name_gml
     logger.info('getting angle for {}, {}, and {}'.format(band_name, view_ang_name, gml))
-    g = ogr.Open(gml)
+    #get geotransformation (from band-file)
     xRes = 10; yRes=10
     g1     = gdal.Open(band_name)
     geo_t = g1.GetGeoTransform()
@@ -112,27 +112,23 @@ def get_angle(view_ang_name_gml, vaa, vza, band_dict):
     xRes, yRes  = abs(geo_t[1]), abs(geo_t[5])
     x_scale = 5000. / xRes
     y_scale = 5000. / yRes
-    layer = g.GetLayer()
-    foot1 = None                            
-    foot2 = None                                   
-    va1   = None
-    vz1   = None         
-    va2   = None                                                     
-    vz2   = None     
-    try:
-        dets = []
-        for i in range(layer.GetFeatureCount()): 
-            dets.append(layer.GetFeature(i).items()['gml_id'])
-        dets = sorted(dets, key = lambda i: int(i.split('-')[2]))
-        for i in range(len(dets)):
-            det = dets[i]
-            foot1 = gdal.Rasterize("", gml, format="MEM", xRes=xRes, yRes=yRes, \
-                                   where="gml_id='%s'"%det, outputBounds=[ x_min, y_min, x_max, y_max], \
-                                   noData=0, burnValues=1, outputType=gdal.GDT_Byte).ReadAsArray()
-            foot1 = binary_dilation(foot1)
-            key =  band_dict[det.split('-')[-3]], int(det.split('-')[-2])
+
+    # As of 25 januari 2022 (with Product description baseline 4.00), metadata is stored in jp2 format rather than gml format. 
+    if gml.split('.')[-1]=='jp2':
+        g = gdal.Open(gml) 
+        geo_gml = g1.GetGeoTransform()
+        foot_mask=g.ReadAsArray()
+        
+        detectorid= np.unique(foot_mask)[1:]
+        for i in range(len(detectorid)):
+            foot1 = binary_dilation(foot_mask==detectorid[i])
+            
+            band_name = band_name.split('/')[-1].split('.')[0]
+            key = band_dict[band_name],detectorid[i]
+        
             va1 = vaa[key]       
             vz1 = vza[key]                                                
+                
             if i>0:
                 overlap = foot1 * foot2
                 if overlap.sum() < 10:
@@ -146,6 +142,7 @@ def get_angle(view_ang_name_gml, vaa, vza, band_dict):
                     ur = x[x==xmin][0], y[x==xmin][0]
                     p1 = np.mean([lr, ur], axis=0)
                     p2 = np.mean([ll, ul], axis=0)
+                        
                     x1,y1 = np.where(foot2)
                     vamax, vamin  = np.nanmax(va2), np.nanmin(va2)
                     vzmax, vzmin  = np.nanmax(vz2), np.nanmin(vz2)
@@ -175,7 +172,8 @@ def get_angle(view_ang_name_gml, vaa, vza, band_dict):
                         vas[x1,y1] = vamin
                         vzs[x1,y1] = vzmin
                     x1,y1 = np.where(foot1)
-                    if i == layer.GetFeatureCount()-1:
+                        
+                    if i == 3: 
                         vamax, vamin  = np.nanmax(va1), np.nanmin(va1)
                         vzmax, vzmin  = np.nanmax(vz1), np.nanmin(vz1) 
                         if not (p1==p2).all():
@@ -204,9 +202,116 @@ def get_angle(view_ang_name_gml, vaa, vza, band_dict):
                             vas[x1,y1] = vamin 
             foot2 = foot1
             va2   = va1
-            vz2   = vz1
-        #    vas[:] = np.nanmean(vaa.values())
-        #    vzs[:] = np.nanmean(vza.values())
+            vz2   = vz1            
+        
+    if gml.split('.')[-1]=='gml':
+        g = ogr.Open(gml)                                                 #GMLS NOT PRESENT in PRODUCTv4                            
+        layer = g.GetLayer()
+        
+        foot1 = None                            
+        foot2 = None                                   
+        va1   = None
+        vz1   = None         
+        va2   = None                                                     
+        vz2   = None     
+        
+        Nfeature = layer.GetFeatureCount()
+        
+        try:
+            dets = []
+            for i in range(layer.GetFeatureCount()):
+                dets.append(layer.GetFeature(i).items()['gml_id'])
+            dets = sorted(dets, key = lambda i: int(i.split('-')[2]))  # detectors
+            for i in range(len(dets)):
+                det = dets[i]
+
+                foot1 = gdal.Rasterize("", gml, format="MEM", xRes=xRes, yRes=yRes, where="gml_id='%s'"%det, outputBounds=[ x_min, y_min, x_max, y_max], noData=0, burnValues=1, outputType=gdal.GDT_Byte).ReadAsArray()
+                foot1 = binary_dilation(foot1)
+                
+                key =  band_dict[det.split('-')[-3]], int(det.split('-')[-2])
+                va1 = vaa[key]       
+                vz1 = vza[key]                                                
+                if i>0:
+                    overlap = foot1 * foot2
+                    if overlap.sum() < 10:
+                        foot1 = foot2
+                    else:
+                        x,y = np.where(overlap)
+                        xmin, xmax, ymin, ymax = x.min(), x.max(), y.min(),y.max()
+                        ll = x[x==xmax][-1], y[x==xmax][-1]
+                        lr = x[y==ymax][-1], y[y==ymax][-1]
+                        ul = x[y==ymin][0], y[y==ymin][0]
+                        ur = x[x==xmin][0], y[x==xmin][0]
+                        p1 = np.mean([lr, ur], axis=0)
+                        p2 = np.mean([ll, ul], axis=0)
+                        
+                        x1,y1 = np.where(foot2)
+                        vamax, vamin  = np.nanmax(va2), np.nanmin(va2)
+                        vzmax, vzmin  = np.nanmax(vz2), np.nanmin(vz2)
+                        if not (p1==p2).all():
+                            p = np.poly1d(np.polyfit([p1[1], p2[1]],[p1[0], p2[0]],1))
+                            foot2[x[x > p(y)], y[x > p(y)]] = False
+                            minx, miny = np.where(va2 == vamin)
+                            maxx, maxy = np.where(va2 == vamax)
+                            min_dst = abs(p(miny*y_scale)-minx*x_scale)/(np.sqrt(1+p.c[0]**2))
+                            max_dst = abs(p(maxy*y_scale)-maxx*x_scale)/(np.sqrt(1+p.c[0]**2))
+                            if  (max_dst < min_dst).any():
+                                tmp1 = vamin.copy()
+                                vamin = vamax 
+                                vamax = tmp1
+                            minx, miny = np.where(vz2 == vzmin)
+                            maxx, maxy = np.where(vz2 == vzmax)
+                            min_dst = abs(p(miny*y_scale)-minx*x_scale)/(np.sqrt(1+p.c[0]**2))
+                            max_dst = abs(p(maxy*y_scale)-maxx*x_scale)/(np.sqrt(1+p.c[0]**2))
+                            if (max_dst < min_dst).any():
+                                tmp2 = vzmin.copy()
+                                vzmin = vzmax
+                                vzmax = tmp2 
+                            dist = abs(p(y1)-x1)/(np.sqrt(1+p.c[0]**2))
+                            vas[x1,y1] = vamin + dist/(dist.max()-dist.min()) * (vamax-vamin)
+                            vzs[x1,y1] = vzmin + dist/(dist.max()-dist.min()) * (vzmax-vzmin)
+                        else:
+                            vas[x1,y1] = vamin
+                            vzs[x1,y1] = vzmin
+                        x1,y1 = np.where(foot1)
+                        
+                        if i == layer.GetFeatureCount()-1: 
+                            vamax, vamin  = np.nanmax(va1), np.nanmin(va1)
+                            vzmax, vzmin  = np.nanmax(vz1), np.nanmin(vz1) 
+                            if not (p1==p2).all():
+                                foot1[x[x <= p(y)], y[x <= p(y)]] = False
+                                minx, miny = np.where(va1 == vamin)         
+                                maxx, maxy = np.where(va1 == vamax)
+                                min_dst = abs(p(miny*y_scale)-minx*x_scale)/(np.sqrt(1+p.c[0]**2))
+                                max_dst = abs(p(maxy*y_scale)-maxx*x_scale)/(np.sqrt(1+p.c[0]**2))
+                                if  (max_dst < min_dst).any():                      
+                                    tmp1 = vamin.copy()                     
+                                    vamin = vamax                           
+                                    vamax = tmp1                            
+                                minx, miny = np.where(vz1 == vzmin)         
+                                maxx, maxy = np.where(vz1 == vzmax)         
+                                min_dst = abs(p(miny*y_scale)-minx*x_scale)/(np.sqrt(1+p.c[0]**2))
+                                max_dst = abs(p(maxy*y_scale)-maxx*x_scale)/(np.sqrt(1+p.c[0]**2))
+                                if (max_dst < min_dst).any():                       
+                                    tmp2 = vzmin.copy()                     
+                                    vzmin = vzmax                           
+                                    vzmax = tmp2
+                                dist = abs(p(y1)-x1)/(np.sqrt(1+p.c[0]**2))
+                                vas[x1,y1] = vamin + dist/(dist.max()-dist.min()) * (vamax-vamin)
+                                vzs[x1,y1] = vzmin + dist/(dist.max()-dist.min()) * (vzmax-vzmin)
+                            else:
+                                vas[x1,y1] = vamin 
+                                vas[x1,y1] = vamin 
+                foot2 = foot1
+                va2   = va1
+                vz2   = vz1
+            #    vas[:] = np.nanmean(vaa.values())
+            #    vzs[:] = np.nanmean(vza.values())
+        except:
+            return False
+    
+    # write output to VZA_VAA file ()
+    try:        
         if os.path.exists(view_ang_name):                   
             os.remove(view_ang_name)                        
         dst_ds = gdal.GetDriverByName('GTiff').Create(view_ang_name, x_size, y_size, 2, gdal.GDT_Int16, options=["TILED=YES", "COMPRESS=DEFLATE"])
@@ -256,14 +361,14 @@ def resample_s2_angles(metafile):
     if ('MTD' in metafile) & ('TL' in metafile) & ('xml' in metafile):
         if not os.path.exists(s2_file_dir + '/ANG_DATA/'):
             os.mkdir(s2_file_dir + '/ANG_DATA/')
-        gmls = glob(s2_file_dir + '/QI_DATA/*MSK_DETFOO*.gml')
+        gmls = glob(s2_file_dir + '/QI_DATA/*MSK_DETFOO*.gml') + glob(s2_file_dir + '/QI_DATA/*DETFOO*.jp2')
         sun_ang_name = s2_file_dir + '/ANG_DATA/' + 'SAA_SZA.tif'
         view_ang_names = [s2_file_dir + '/ANG_DATA/' + 'VAA_VZA_%s.tif'%band for band in bands]
         toa_refs = glob(s2_file_dir + '/IMG_DATA/*B??.jp2')
     elif 'metadata.xml' in metafile:
         if not os.path.exists(s2_file_dir + '/angles/'):
             os.mkdir(s2_file_dir + '/angles/')
-        gmls = glob(s2_file_dir + '/qi/*MSK_DETFOO*.gml')
+        gmls = glob(s2_file_dir + '/qi/*MSK_DETFOO*.gml') + glob(s2_file_dir + '/qi/*DETFOO*.jp2')
         sun_ang_name = s2_file_dir + '/angles/' + 'SAA_SZA.tif'
         view_ang_names = [s2_file_dir + '/angles/' + 'VAA_VZA_%s.tif'%band for band in bands]
         toa_refs = glob(s2_file_dir + '/*B??.jp2')
